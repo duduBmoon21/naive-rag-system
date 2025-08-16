@@ -1,0 +1,6 @@
+langchain
+pypdf
+python-dotenv
+streamlit
+chromadb
+tiktoken
