@@ -1,8 +1,9 @@
-langchain
-langchain-community
-pypdf
-python-dotenv
-streamlit
-chromadb
-tiktoken
-groq
+streamlit	
+langchain-groq	
+langchain-community	
+python-dotenv	
+pypdf	
+chromadb	
+yt-dlp	
+sentence-transformers	
+langchain-huggingface	

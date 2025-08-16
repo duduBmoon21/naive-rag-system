@@ -1,5 +1,5 @@
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.schema import Document
 from typing import List, Optional
 import os
@@ -7,7 +7,7 @@ import os
 class VectorStore:
     def __init__(self, persist_directory: str = "./chroma_db", cache_folder: str = "./embedding_cache"):
         """
-        Initialize embeddings and prepare vector store instance.
+        Initialize embeddings and prepare vector store instance with updated imports.
         """
         self.persist_directory = persist_directory
         try:
@@ -37,6 +37,15 @@ class VectorStore:
             if "Lock" in str(e):
                 raise RuntimeError("Database locked - try deleting the chroma_db folder")
             raise RuntimeError(f"Vector store creation failed: {str(e)}")
+
+    def close(self):
+        """Properly clean up resources"""
+        try:
+            if self.db:
+                # ChromaDB doesn't have explicit close, but we can delete reference
+                self.db = None
+        except Exception as e:
+            print(f"Warning: Error closing vectorstore - {e}")
 
     def load_existing(self):
         """
