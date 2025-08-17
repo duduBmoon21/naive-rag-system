@@ -4,54 +4,54 @@ from langchain.prompts import PromptTemplate
 from groq import AuthenticationError, RateLimitError, APIConnectionError
 import os
 
+#load .env 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass 
+
 def validate_groq_api():
-    """Validate GROQ_API_KEY exists and is valid"""
+    """Validate GROQ_API_KEY exists; skip gracefully if missing"""
     if "GROQ_API_KEY" not in os.environ:
-        raise ValueError("GROQ_API_KEY missing from environment variables")
-    
+        print("Warning: GROQ_API_KEY not set. QA chains will not run.")
+        return False
     try:
         test_llm = ChatGroq(model_name="Llama3-8b-8192", max_tokens=1)
         test_llm.invoke("test")
-    except AuthenticationError:
-        raise ValueError("Invalid GROQ_API_KEY - check at console.groq.com")
-    except APIConnectionError:
-        raise ConnectionError("Failed to connect to Groq servers")
-    except RateLimitError:
-        raise RuntimeError("Rate limit exceeded - try again later")
+        return True
+    except (AuthenticationError, APIConnectionError, RateLimitError):
+        print("Warning: GROQ_API_KEY invalid or connection failed. QA chains may fail.")
+        return False
 
 def create_qa_chain(retriever):
-    try:
-        # 1. Validate API key first
-        validate_groq_api()
-        
-        # 2. Initialize LLM 
-        llm = ChatGroq(
-            model_name="Llama3-70b-8192",  
-            temperature=0.5, 
-            max_tokens=2048,  
-            max_retries=3,
-            request_timeout=15
-        )
-        
-        # 3. Context prompt 
-        context_prompt_template = """
+    """Create an enhanced QA + Analysis chain"""
+    has_key = validate_groq_api()
+
+    llm = ChatGroq(
+        model_name="Llama3-70b-8192",
+        temperature=0.5,
+        max_tokens=2048,
+        max_retries=3,
+        request_timeout=15
+    ) if has_key else None
+
+    # Context prompt
+    CONTEXT_PROMPT = PromptTemplate(
+        template="""
         [INST] Answer strictly based only on the context below. 
         Clearly indicate which source each piece comes from (PDF name or YouTube).
         If multiple sources are available, cross-reference them.
-        If unsure, say "This isn't clear from the sources."
-
+        If unsure, say "This isn't clear from the sources.
         Context: {context}
-
         Question: {question} [/INST]
-        """
-        
-        CONTEXT_PROMPT = PromptTemplate(
-            template=context_prompt_template,
-            input_variables=["context", "question"]
-        )
-        
-        # 4. Analysis prompt 
-        analysis_prompt_template = """
+        """,
+        input_variables=["context", "question"]
+    )
+
+    # Analysis prompt
+    ANALYSIS_PROMPT = PromptTemplate(
+        template="""
         [INST] Based on the following question and the context answer provided, 
         generate your own analysis that goes beyond the given sources. 
         This could include:
@@ -60,54 +60,50 @@ def create_qa_chain(retriever):
         - Identifying potential gaps or limitations
         - Providing educated guesses where appropriate
         - Offering practical insights or recommendations
-        
         Question: {question}
         Context Answer: {context_answer}
-        
         Provide your analysis below: [/INST]
-        """
-        
-        ANALYSIS_PROMPT = PromptTemplate(
-            template=analysis_prompt_template,
-            input_variables=["question", "context_answer"]
-        )
-        
-        # 5. Create the context answer chain
+        """,
+        input_variables=["question", "context_answer"]
+    )
+
+    # Wrap RetrievalQA
+    if llm:
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
             retriever=retriever,
-            chain_type_kwargs={
-                "prompt": CONTEXT_PROMPT,
-                "verbose": True  
-            },
+            chain_type_kwargs={"prompt": CONTEXT_PROMPT, "verbose": True},
             return_source_documents=True
         )
-        
-        # 6. Create analysis chain
         analysis_chain = ANALYSIS_PROMPT | llm
-        
+
         def enhanced_qa(inputs):
-            # First get context-based answer
-            qa_result = qa_chain.invoke({"query": inputs["query"]})
-            
-            # Then generate analysis
-            analysis_result = analysis_chain.invoke({
-                "question": inputs["query"],
-                "context_answer": qa_result["result"]
-            })
-            
-            return {
-                "context_answer": qa_result["result"],
-                "analysis_answer": analysis_result.content,
-                "source_documents": qa_result["source_documents"]
-            }
-        
+            try:
+                qa_result = qa_chain.invoke({"query": inputs["query"]})
+                analysis_result = analysis_chain.invoke({
+                    "question": inputs["query"],
+                    "context_answer": qa_result["result"]
+                })
+                return {
+                    "context_answer": qa_result["result"],
+                    "analysis_answer": analysis_result.content,
+                    "source_documents": qa_result["source_documents"]
+                }
+            except Exception as e:
+                return {
+                    "context_answer": "LLM failed or API key missing",
+                    "analysis_answer": "LLM failed or API key missing",
+                    "source_documents": []
+                }
+
         return enhanced_qa
-        
-    except AuthenticationError as e:
-        raise ValueError(f"Groq authentication failed: {str(e)}")
-    except RateLimitError as e:
-        raise RuntimeError(f"Groq rate limit exceeded: {str(e)}")
-    except Exception as e:
-        raise RuntimeError(f"Failed to initialize QA chain: {str(e)}")
+    else:
+        # No API key: return dummy retriever
+        def dummy_qa(inputs):
+            return {
+                "context_answer": "GROQ API key missing, cannot answer.",
+                "analysis_answer": "GROQ API key missing, cannot answer.",
+                "source_documents": []
+            }
+        return dummy_qa
