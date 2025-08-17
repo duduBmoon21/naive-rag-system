@@ -1,72 +1,97 @@
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.schema import Document
-from typing import List, Optional
+from langchain_core.documents import Document
+from typing import List, Optional, Dict
 import os
 
 class VectorStore:
     def __init__(self, persist_directory: str = "./chroma_db", cache_folder: str = "./embedding_cache"):
         """
-        Initialize embeddings and prepare vector store instance with updated imports.
+        Enhanced vector store with multi-collection support
         """
         self.persist_directory = persist_directory
+        self.collections: Dict[str, Chroma] = {}
+        self.current_collection: Optional[str] = None
+        
         try:
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="all-MiniLM-L6-v2",
                 cache_folder=cache_folder
             )
-            self.db: Optional[Chroma] = None
         except Exception as e:
             raise RuntimeError(f"Embedding model failed to load: {str(e)}")
 
-    def create_from_documents(self, documents: List[Document]):
+    def create_collection(self, collection_name: str, documents: List[Document]):
         """
-        Create and persist vector store from a list of documents.
+        Create a new named collection from documents
         """
         if not documents:
-            raise ValueError("No documents provided for vector store")
-
+            raise ValueError("No documents provided for collection")
+            
         try:
-            self.db = Chroma.from_documents(
+            collection_path = os.path.join(self.persist_directory, collection_name)
+            os.makedirs(collection_path, exist_ok=True)
+            
+            self.collections[collection_name] = Chroma.from_documents(
                 documents=documents,
                 embedding=self.embeddings,
-                persist_directory=self.persist_directory
+                persist_directory=collection_path,
+                collection_name=collection_name
             )
-            return self.db
+            self.current_collection = collection_name
+            return self.collections[collection_name]
+            
         except Exception as e:
             if "Lock" in str(e):
-                raise RuntimeError("Database locked - try deleting the chroma_db folder")
-            raise RuntimeError(f"Vector store creation failed: {str(e)}")
+                raise RuntimeError(f"Collection {collection_name} is locked - try deleting its folder")
+            raise RuntimeError(f"Collection creation failed: {str(e)}")
 
-    def close(self):
-        """Properly clean up resources"""
-        try:
-            if self.db:
-                # ChromaDB doesn't have explicit close, but we can delete reference
-                self.db = None
-        except Exception as e:
-            print(f"Warning: Error closing vectorstore - {e}")
-
-    def load_existing(self):
+    def switch_collection(self, collection_name: str):
         """
-        Load an already persisted vector store (if exists).
+        Switch active collection
         """
-        if not os.path.exists(self.persist_directory):
-            raise FileNotFoundError(f"No existing vector store found at {self.persist_directory}")
+        if collection_name not in self.collections:
+            raise ValueError(f"Collection {collection_name} does not exist")
+        self.current_collection = collection_name
+        return self.collections[collection_name]
 
-        try:
-            self.db = Chroma(
-                persist_directory=self.persist_directory,
-                embedding_function=self.embeddings
-            )
-            return self.db
-        except Exception as e:
-            raise RuntimeError(f"Failed to load existing vector store: {str(e)}")
+    def get_active_collection(self) -> Chroma:
+        """
+        Get current active collection
+        """
+        if not self.current_collection:
+            raise ValueError("No active collection selected")
+        return self.collections[self.current_collection]
+
+    # Legacy methods (maintain backward compatibility)
+    def create_from_documents(self, documents: List[Document]):
+        """Legacy: Creates default collection"""
+        return self.create_collection("default", documents)
+
+    def load_existing(self, collection_name: str = "default"):
+        """Legacy: Loads specified collection"""
+        collection_path = os.path.join(self.persist_directory, collection_name)
+        if not os.path.exists(collection_path):
+            raise FileNotFoundError(f"No collection found at {collection_path}")
+
+        self.collections[collection_name] = Chroma(
+            persist_directory=collection_path,
+            embedding_function=self.embeddings,
+            collection_name=collection_name
+        )
+        self.current_collection = collection_name
+        return self.collections[collection_name]
 
     def get_retriever(self, k: int = 3):
-        """
-        Return retriever for similarity search.
-        """
-        if not self.db:
-            raise ValueError("Vector store not initialized. Create or load it first.")
-        return self.db.as_retriever(search_kwargs={"k": k})
+        """Get retriever from active collection"""
+        return self.get_active_collection().as_retriever(search_kwargs={"k": k})
+
+    def close(self):
+        """Clean up all collections"""
+        try:
+            for collection in self.collections.values():
+                collection.delete_collection()
+            self.collections = {}
+            self.current_collection = None
+        except Exception as e:
+            print(f"Warning during cleanup: {e}")

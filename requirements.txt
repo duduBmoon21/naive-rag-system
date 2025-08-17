@@ -7,3 +7,4 @@ chromadb
 yt-dlp	
 sentence-transformers	
 langchain-huggingface	
+rank_bm25
