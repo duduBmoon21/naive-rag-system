@@ -1,21 +1,20 @@
 import streamlit as st
-from helpers.loader import load_pdf, load_youtube_transcript
+from helpers.loader import load_pdf
+from helpers.youtube import load_youtube_transcript
 from helpers.chain import create_qa_chain
-from helpers.vectorstore import VectorStore
+from helpers.retriever import HybridRetriever
 import os
 import shutil
-import time
 
 # --- Config ---
 st.set_page_config(
-    page_title="Lumi - Your Study Assistant", 
+    page_title="Lumi - Your Study Assistant",
     layout="wide",
     page_icon="💡"
 )
 
 # --- Cross-platform folder deletion ---
 def safe_delete_folder(path, ignore_errors=True):
-    """Delete folder safely, cross-platform"""
     if os.path.exists(path):
         try:
             shutil.rmtree(path)
@@ -25,8 +24,8 @@ def safe_delete_folder(path, ignore_errors=True):
             print(f"Warning: Could not delete {path}. Continuing...")
 
 # --- Session state ---
-if "vectorstore" not in st.session_state:
-    st.session_state.vectorstore = None
+if "retriever" not in st.session_state:
+    st.session_state.retriever = None
 if "processed" not in st.session_state:
     st.session_state.processed = False
 if "source_count" not in st.session_state:
@@ -36,19 +35,17 @@ if "source_count" not in st.session_state:
 st.title("Lumi - Your Study Assistant")
 st.caption("Upload study materials and get AI-powered insights")
 
-# File upload section
+# --- File upload section ---
 with st.expander("Upload Sources", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
         uploaded_files = st.file_uploader(
-            "PDF Documents", 
-            type="pdf",
-            accept_multiple_files=True,
+            "PDF Documents", type="pdf", accept_multiple_files=True,
             help="Upload lecture notes, research papers, or study materials"
         )
     with col2:
         youtube_url = st.text_input(
-            "YouTube Video URL", 
+            "YouTube Video URL",
             placeholder="https://youtube.com/watch?v=...",
             help="For best results, use videos with English captions"
         )
@@ -59,17 +56,16 @@ process_btn = st.button("Process Materials", type="primary")
 if process_btn and (uploaded_files or youtube_url):
     with st.status("Processing your materials...", expanded=True) as status:
         try:
-            # Clear previous vectorstore
-            if st.session_state.vectorstore:
-                st.session_state.vectorstore.close()
-            
+            # Clear previous retriever
+            if st.session_state.retriever:
+                st.session_state.retriever.clear()
+
             # Clear cache folders
-            safe_delete_folder("./chroma_db")
             safe_delete_folder("./data")
             os.makedirs("./data", exist_ok=True)
 
-            # Initialize vector store
-            st.session_state.vectorstore = VectorStore()
+            # Initialize retriever
+            st.session_state.retriever = HybridRetriever()
             all_docs = []
             processed_count = 0
 
@@ -104,12 +100,12 @@ if process_btn and (uploaded_files or youtube_url):
             # Create knowledge base
             if all_docs:
                 st.write(" Generating searchable knowledge...")
-                st.session_state.vectorstore.create_from_documents(all_docs)
+                st.session_state.retriever.ingest_documents(all_docs)
                 st.session_state.processed = True
                 st.session_state.source_count = processed_count
                 status.update(
                     label=f"Processed {processed_count} source(s)! Ready for questions.",
-                    state="complete", 
+                    state="complete",
                     expanded=False
                 )
             else:
@@ -131,16 +127,15 @@ if st.session_state.processed:
     if question:
         with st.spinner("Analyzing your question..."):
             try:
-                retriever = st.session_state.vectorstore.get_retriever()
+                retriever = st.session_state.retriever.get_retriever()
                 qa_chain = create_qa_chain(retriever)
                 result = qa_chain({"query": question})
 
                 # Display answers
-                with st.container():
-                    st.subheader("From Your Materials")
-                    st.markdown(result["context_answer"])
-                    st.subheader("Lumi's Analysis")
-                    st.markdown(result["analysis_answer"])
+                st.subheader("From Your Materials")
+                st.markdown(result["context_answer"])
+                st.subheader("Lumi's Analysis")
+                st.markdown(result["analysis_answer"])
 
                 # Show sources
                 if result["source_documents"]:
@@ -161,9 +156,8 @@ if st.session_state.processed:
 # --- Reset button ---
 if st.button("Start New Session"):
     try:
-        if st.session_state.vectorstore:
-            st.session_state.vectorstore.close()
-        safe_delete_folder("./chroma_db")
+        if st.session_state.retriever:
+            st.session_state.retriever.clear()
         safe_delete_folder("./data")
         st.session_state.clear()
         st.rerun()

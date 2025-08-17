@@ -3,16 +3,19 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.schema import BaseRetriever
 from sentence_transformers import CrossEncoder
 from rank_bm25 import BM25Okapi
 import numpy as np
 import os
 
 class HybridRetriever:
-    def __init__(self, persist_dir: str = "./chroma_db"):
-        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    """Hybrid dense + sparse in-memory retriever"""
+
+    def __init__(self, persist_dir: Optional[str] = None):
+        # Use in-memory Chroma if persist_dir is None
         self.persist_dir = persist_dir
-        os.makedirs(self.persist_dir, exist_ok=True)
+        self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.vectorstore: Optional[Chroma] = None
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -24,17 +27,16 @@ class HybridRetriever:
         self.reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     def ingest_documents(self, documents: List[Document]):
-        """Process and store documents with both dense and sparse indexing"""
+        """Split, index, and store documents"""
         if not documents:
             raise ValueError("No documents provided")
 
-        # Split documents
         split_docs = self.text_splitter.split_documents(documents)
 
-        # Build BM25 sparse index
+        # Sparse BM25 index
         self._build_bm25_index(split_docs)
 
-        # Create/update Chroma vectorstore
+        # Dense in-memory vectorstore
         self.vectorstore = Chroma.from_documents(
             documents=split_docs,
             embedding=self.embeddings,
@@ -42,24 +44,22 @@ class HybridRetriever:
         )
 
     def _build_bm25_index(self, documents: List[Document]):
-        """Build sparse retrieval index"""
         self.doc_store = {str(i): doc for i, doc in enumerate(documents)}
         corpus = [doc.page_content.split() for doc in documents]
         self.bm25_index = BM25Okapi(corpus)
 
-    def get_retriever(self, k: int = 4, rerank: bool = True):
-        """Return retriever with optional hybrid reranking"""
+    def get_hybrid_retriever_func(self, k: int = 4, rerank: bool = True):
+        """Return a callable hybrid function for in-app use"""
         if self.vectorstore is None:
             raise ValueError("Vectorstore not initialized")
 
         base_retriever = self.vectorstore.as_retriever(search_kwargs={"k": k*2})
 
         if not rerank:
-            return base_retriever
+            return lambda query: base_retriever.get_relevant_documents(query)
 
         def hybrid_retriever(query: str) -> List[Document]:
             dense_results = base_retriever.get_relevant_documents(query)
-
             tokenized_query = query.split()
             bm25_scores = self.bm25_index.get_scores(tokenized_query)
             sparse_ids = np.argsort(bm25_scores)[-k*2:][::-1]
@@ -71,8 +71,18 @@ class HybridRetriever:
 
         return hybrid_retriever
 
+    def get_retriever(self, k: int = 4, rerank: bool = True):
+        """Return a BaseRetriever-compatible wrapper for RetrievalQA"""
+        hybrid_func = self.get_hybrid_retriever_func(k=k, rerank=rerank)
+
+        class RetrieverWrapper(BaseRetriever):
+            def get_relevant_documents(self, query: str) -> List[Document]:
+                return hybrid_func(query)
+
+        return RetrieverWrapper()
+
     def _rerank(self, query: str, documents: List[Document]) -> List[Document]:
-        """Re-rank results using cross-encoder"""
+        """Rerank using CrossEncoder"""
         pairs = [(query, doc.page_content) for doc in documents]
         scores = self.reranker.predict(pairs)
         scored_docs = sorted(zip(documents, scores), key=lambda x: x[1], reverse=True)

@@ -1,83 +1,99 @@
+import os
 import re
-from typing import List, Optional
+from typing import List
 from langchain_core.documents import Document
 import yt_dlp
 
-def _clean_transcript(text: str) -> str:
-    """Clean transcript text, removing timestamps, HTML, empty lines, etc."""
-    import re
-    patterns = [
-        (r'\d{1,2}:\d{2}(?:\.\d+)?', ''),   # timestamps
-        (r'\[.*?\]', ''),                    # sound descriptions
-        (r'<.*?>', ''),                      # HTML tags
-        (r'^WEBVTT.*$', '', re.MULTILINE),   # WEBVTT header
-        (r'^\s*$\n', '', re.MULTILINE),     # empty lines
-        (r'[^\w\s\'",.?!-]', ' '),           # special chars
-        (r'\s+', ' ')                        # multiple spaces
-    ]
-    for pattern, repl in patterns:
-        text = re.sub(pattern, repl, text, flags=re.MULTILINE)
-    return text.strip()
+def _parse_transcript(raw_text: str) -> str:
+    """
+    Clean and normalize raw YouTube transcript text:
+    """
+    # Remove XML/HTML tags
+    text = re.sub(r'<[^>]+>', '', raw_text)
+    # Remove bracketed descriptions [CHEERS]
+    text = re.sub(r'\[.*?\]', '', text)
+    # Remove metadata headers like "Kind: captions Language: en"
+    text = re.sub(r'^Kind:.*?\n', '', text, flags=re.MULTILINE)
+    # Remove WEBVTT header if present
+    text = re.sub(r'^WEBVTT.*\n', '', text, flags=re.MULTILINE)
+    # Remove timestamp lines
+    text = re.sub(r'\d{2}:\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}:\d{2}\.\d{3}.*\n', '', text)
+    
+    # Split lines, remove empty lines and duplicates
+    lines = text.strip().split('\n')
+    cleaned_lines = []
+    for line in lines:
+        clean_line = line.strip().lstrip('> ').strip()
+        if clean_line and (not cleaned_lines or cleaned_lines[-1] != clean_line):
+            cleaned_lines.append(clean_line)
+    
+    # Join and normalize whitespace
+    final_text = " ".join(cleaned_lines)
+    return re.sub(r'\s+', ' ', final_text).strip()
 
-def _download_transcript(url: str, ydl_opts: dict) -> Optional[str]:
-    """Download and clean transcript using yt_dlp"""
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info:
-                return None
 
-            temp_file = f"temp_{info['id']}.vtt"
-            ydl.download([url])
-
-            if os.path.exists(temp_file):
-                with open(temp_file, 'r', encoding='utf-8') as f:
-                    content = _clean_transcript(f.read())
-                os.remove(temp_file)
-                return content if content else None
-    except Exception:
-        return None
-
-def load_youtube_transcript(url: str) -> List[Document]:
-    """Load YouTube transcript with multiple fallbacks"""
-    if not re.match(r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+', url):
+def load_youtube_transcript(youtube_url: str) -> List[Document]:
+    """
+    Downloads a transcript from YouTube using yt-dlp (manual or auto captions),
+    cleans it, and returns it as a single LangChain Document.
+    """
+    if not re.match(r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+', youtube_url):
         raise ValueError("Invalid YouTube URL")
 
-    # Try manual English captions
-    content = _download_transcript(url, {
-        'skip_download': True,
+    # Options for yt-dlp
+    ydl_opts = {
+        'format': 'best',
         'writesubtitles': True,
+        'writeautomaticsub': True,
         'subtitleslangs': ['en'],
         'subtitlesformat': 'vtt',
-        'quiet': True
-    })
+        'skip_download': True,
+        'quiet': True,
+        'ignoreerrors': True,
+        'outtmpl': 'temp_transcript_%(id)s',
+    }
 
-    # Fallback to automatic captions
-    if not content:
-        content = _download_transcript(url, {
-            'skip_download': True,
-            'writeautomaticsub': True,
-            'subtitleslangs': ['en'],
-            'quiet': True
-        })
+    transcript_text = ""
+    downloaded_file = None
+    video_info = {}
 
-    if not content:
-        raise ValueError(
-            "No English captions available. Use a video with captions enabled."
-        )
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(youtube_url, download=False)
+            video_id = info_dict.get('id', 'default')
+            video_info = info_dict
+            expected_file = f"temp_transcript_{video_id}.en.vtt"
 
-    # Video metadata
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-        info = ydl.extract_info(url, download=False) or {}
+            # Trigger subtitle download
+            ydl.download([youtube_url])
 
-    return [Document(
-        page_content=content,
+            if os.path.exists(expected_file):
+                downloaded_file = expected_file
+                with open(downloaded_file, 'r', encoding='utf-8') as f:
+                    raw_content = f.read()
+                transcript_text = _parse_transcript(raw_content)
+            else:
+                raise FileNotFoundError("No VTT transcript downloaded. Ensure captions are available.")
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to process YouTube video {youtube_url}: {e}")
+    finally:
+        if downloaded_file and os.path.exists(downloaded_file):
+            os.remove(downloaded_file)
+
+    if not transcript_text:
+        raise ValueError("Could not extract any text from the transcript.")
+
+    # Build LangChain Document with metadata
+    doc = Document(
+        page_content=transcript_text,
         metadata={
-            "source": url,
-            "title": info.get('title', 'Untitled Video'),
-            "duration": info.get('duration', 0),
-            "views": info.get('view_count', 0),
+            "source": youtube_url,
+            "title": video_info.get('title', 'Untitled Video'),
+            "duration": video_info.get('duration', 0),
+            "views": video_info.get('view_count', 0),
             "type": "youtube",
-            "captions_type": "manual" if 'writesubtitles' in locals() else "auto"
         }
-    )]
+    )
+
+    return [doc]
