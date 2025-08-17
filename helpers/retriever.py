@@ -13,8 +13,8 @@ class HybridRetriever:
     """Hybrid dense + sparse in-memory retriever"""
 
     def __init__(self, persist_dir: Optional[str] = None):
-        # Use in-memory Chroma if persist_dir is None
-        self.persist_dir = persist_dir
+        # Force in-memory Chroma
+        self.persist_dir = None
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.vectorstore: Optional[Chroma] = None
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -36,12 +36,24 @@ class HybridRetriever:
         # Sparse BM25 index
         self._build_bm25_index(split_docs)
 
-        # Dense in-memory vectorstore
-        self.vectorstore = Chroma.from_documents(
-            documents=split_docs,
-            embedding=self.embeddings,
-            persist_directory=self.persist_dir
-        )
+        try:
+            # Dense in-memory vectorstore
+            self.vectorstore = Chroma.from_documents(
+                documents=split_docs,
+                embedding=self.embeddings,
+                persist_directory=None 
+            )
+        except Exception as e:
+            if "sqlite3" in str(e).lower():
+                print("Warning: Falling back to pure in-memory Chroma")
+                # Try with explicit in-memory setting
+                self.vectorstore = Chroma.from_documents(
+                    documents=split_docs,
+                    embedding=self.embeddings,
+                    persist_directory=None
+                )
+            else:
+                raise
 
     def _build_bm25_index(self, documents: List[Document]):
         self.doc_store = {str(i): doc for i, doc in enumerate(documents)}
