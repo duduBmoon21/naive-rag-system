@@ -10,3 +10,10 @@ __pycache__/
 *.egg
 build/
 dist/
+
+.chroma_db/
+data/
+*.db
+
+# Logs
+*.log

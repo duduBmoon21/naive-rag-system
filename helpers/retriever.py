@@ -6,11 +6,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import CrossEncoder
 from rank_bm25 import BM25Okapi
 import numpy as np
+import os
 
 class HybridRetriever:
     def __init__(self, persist_dir: str = "./chroma_db"):
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.persist_dir = persist_dir
+        os.makedirs(self.persist_dir, exist_ok=True)
         self.vectorstore: Optional[Chroma] = None
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -18,29 +20,26 @@ class HybridRetriever:
             length_function=len
         )
         self.bm25_index: Optional[BM25Okapi] = None
-        self.doc_store: Dict[str, Document] = {}  # {doc_id: Document}
+        self.doc_store: Dict[str, Document] = {}
         self.reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
     def ingest_documents(self, documents: List[Document]):
         """Process and store documents with both dense and sparse indexing"""
         if not documents:
             raise ValueError("No documents provided")
-        
-        # Split and store documents
+
+        # Split documents
         split_docs = self.text_splitter.split_documents(documents)
-        
-        # Create BM25 sparse index
+
+        # Build BM25 sparse index
         self._build_bm25_index(split_docs)
-        
+
         # Create/update Chroma vectorstore
-        if self.vectorstore is None:
-            self.vectorstore = Chroma.from_documents(
-                documents=split_docs,
-                embedding=self.embeddings,
-                persist_directory=self.persist_dir
-            )
-        else:
-            self.vectorstore.add_documents(split_docs)
+        self.vectorstore = Chroma.from_documents(
+            documents=split_docs,
+            embedding=self.embeddings,
+            persist_directory=self.persist_dir
+        )
 
     def _build_bm25_index(self, documents: List[Document]):
         """Build sparse retrieval index"""
@@ -52,26 +51,24 @@ class HybridRetriever:
         """Return retriever with optional hybrid reranking"""
         if self.vectorstore is None:
             raise ValueError("Vectorstore not initialized")
-            
-        base_retriever = self.vectorstore.as_retriever(search_kwargs={"k": k*2})  # Fetch extra for reranking
-        
+
+        base_retriever = self.vectorstore.as_retriever(search_kwargs={"k": k*2})
+
         if not rerank:
             return base_retriever
-            
+
         def hybrid_retriever(query: str) -> List[Document]:
-            # Dense retrieval
             dense_results = base_retriever.get_relevant_documents(query)
-            
-            # Sparse retrieval (BM25)
+
             tokenized_query = query.split()
             bm25_scores = self.bm25_index.get_scores(tokenized_query)
             sparse_ids = np.argsort(bm25_scores)[-k*2:][::-1]
             sparse_results = [self.doc_store[str(i)] for i in sparse_ids]
-            
-            # Combine and rerank
-            all_results = list(set(dense_results + sparse_results))
+
+            # Combine and remove duplicates
+            all_results = list({doc.page_content: doc for doc in dense_results + sparse_results}.values())
             return self._rerank(query, all_results)[:k]
-            
+
         return hybrid_retriever
 
     def _rerank(self, query: str, documents: List[Document]) -> List[Document]:
@@ -82,9 +79,7 @@ class HybridRetriever:
         return [doc for doc, _ in scored_docs]
 
     def clear(self):
-        """Reset all retrieval indices"""
-        if self.vectorstore:
-            self.vectorstore.delete_collection()
+        """Reset all indices"""
         self.vectorstore = None
         self.bm25_index = None
         self.doc_store = {}
