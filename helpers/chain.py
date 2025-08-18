@@ -41,7 +41,7 @@ def create_qa_chain(retriever):
         template="""
         [INST] Answer strictly based only on the context below. 
         Clearly indicate which source each piece comes from (PDF name or YouTube).
-        If multiple sources are available, cross-reference them.
+        If multiple sources are available, cross-reference them and your name is Lumi.
         If unsure, say "This isn't clear from the sources.
         Context: {context}
         Question: {question} [/INST]
