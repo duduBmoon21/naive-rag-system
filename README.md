@@ -2,8 +2,8 @@
 
 Lumi is a Retrieval-Augmented Generation (RAG) application built with Streamlit and LangChain. It allows you to create a personalized knowledge base from your study materials (PDFs and YouTube videos) and ask questions to get detailed, source-backed answers and AI-generated analysis.
 
-![Lumi Screenshot](https://user-images.githubusercontent.com/16269993/202936253-8c6d3f8e-3a2b-43e0-8e5a-6a8a3e7b8e4e.png) 
-*(Note: Screenshot is a representative example)*
+![Lumi Screenshot](https://github.com/duduBmoon21/naive-rag-system/blob/main/ScreenShots/1.png)
+\*(Note: This screenshot shows the actual Lumi interface.) 
 
 ---
 
