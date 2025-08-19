@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -7,16 +7,21 @@ from langchain.schema import BaseRetriever
 from sentence_transformers import CrossEncoder
 from rank_bm25 import BM25Okapi
 import numpy as np
-import os
+from langchain_core.runnables import Runnable, RunnableLambda
+
+class _HybridRetrieverWrapper(BaseRetriever):
+    """Internal wrapper to make the hybrid function a LangChain retriever."""
+    hybrid_retriever_func: Runnable
+
+    def get_relevant_documents(self, query: str) -> List[Document]:
+        return self.hybrid_retriever_func.invoke(query)
 
 class HybridRetriever:
     """Hybrid dense + sparse in-memory retriever"""
 
-    def __init__(self, persist_dir: Optional[str] = None):
-        # Force in-memory Chroma
-        self.persist_dir = None
+    def __init__(self):
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        self.vectorstore: Optional[Chroma] = None
+        self.vectorstore: Optional[FAISS] = None
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
@@ -36,24 +41,10 @@ class HybridRetriever:
         # Sparse BM25 index
         self._build_bm25_index(split_docs)
 
-        try:
-            # Dense in-memory vectorstore
-            self.vectorstore = Chroma.from_documents(
-                documents=split_docs,
-                embedding=self.embeddings,
-                persist_directory=None 
-            )
-        except Exception as e:
-            if "sqlite3" in str(e).lower():
-                print("Warning: Falling back to pure in-memory Chroma")
-                # Try with explicit in-memory setting
-                self.vectorstore = Chroma.from_documents(
-                    documents=split_docs,
-                    embedding=self.embeddings,
-                    persist_directory=None
-                )
-            else:
-                raise
+        # Dense in-memory vectorstore using FAISS
+        self.vectorstore = FAISS.from_documents(
+            documents=split_docs, embedding=self.embeddings
+        )
 
     def _build_bm25_index(self, documents: List[Document]):
         self.doc_store = {str(i): doc for i, doc in enumerate(documents)}
@@ -71,7 +62,7 @@ class HybridRetriever:
             return lambda query: base_retriever.get_relevant_documents(query)
 
         def hybrid_retriever(query: str) -> List[Document]:
-            dense_results = base_retriever.get_relevant_documents(query)
+            dense_results = base_retriever.invoke(query)
             tokenized_query = query.split()
             bm25_scores = self.bm25_index.get_scores(tokenized_query)
             sparse_ids = np.argsort(bm25_scores)[-k*2:][::-1]
@@ -86,12 +77,8 @@ class HybridRetriever:
     def get_retriever(self, k: int = 4, rerank: bool = True):
         """Return a BaseRetriever-compatible wrapper for RetrievalQA"""
         hybrid_func = self.get_hybrid_retriever_func(k=k, rerank=rerank)
-
-        class RetrieverWrapper(BaseRetriever):
-            def get_relevant_documents(self, query: str) -> List[Document]:
-                return hybrid_func(query)
-
-        return RetrieverWrapper()
+        # Wrap the Python function in a RunnableLambda to satisfy the Pydantic model
+        return _HybridRetrieverWrapper(hybrid_retriever_func=RunnableLambda(hybrid_func))
 
     def _rerank(self, query: str, documents: List[Document]) -> List[Document]:
         """Rerank using CrossEncoder"""

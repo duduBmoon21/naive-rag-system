@@ -30,7 +30,7 @@ Lumi is an AI-powered study assistant designed to make learning smarter and more
 
 * RAG (Retrieval-Augmented Generation)
 * LangChain & Groq (for fast LLM processing)
-* ChromaDB (vector storage)
+* FAISS (vector storage)
 
 ---
 
@@ -104,6 +104,19 @@ Lumi is an AI-powered study assistant designed to make learning smarter and more
 
 ### 4. Managing Sessions
 
+Here is an example of the two-part response format:
+
+> **Question:** *What is Retrieval-Augmented Generation?*
+>
+> **🤖 Lumi's Answer:**
+>
+> **From Your Sources:**
+> > RAG (Retrieval-Augmented Generation) is an AI framework for retrieving facts from an external knowledge base to ground large language models (LLMs) on the most accurate, up-to-date information and to give users insight into the LLMs' generative process.
+> > *Source: `lecture_notes.pdf`, page 3*
+>
+> **AI Analysis:**
+> > Based on the provided materials, Retrieval-Augmented Generation (RAG) is essentially a method to make language models smarter and more reliable. Instead of just relying on its pre-existing training data, the model first "looks up" relevant information from your specific documents (like a student checking their notes). It then uses these facts to construct a more accurate and context-aware answer, even citing the source for you. This helps prevent the model from making things up and ensures the answers are directly tied to the content you've provided.
+
 * **Reset:** Click *"Start New Session"* to clear all data
 
 ---
@@ -116,7 +129,8 @@ Lumi is an AI-powered study assistant designed to make learning smarter and more
 graph TD
     A[User Uploads] --> B(PDF/YouTube Loader)
     B --> C[Text Chunking]
-    C --> D[ChromaDB Vector Store]
+    C --> D{Embedding Generation}
+    D --> E[FAISS Vector Store]
     D --> E[Retriever]
     E --> F[Groq LLM]
     F --> G[Response Generation]
@@ -127,6 +141,7 @@ graph TD
 
 * **app.py**: Streamlit UI and workflow control
 * **helpers/loader.py**: Handles PDF/YouTube ingestion
+* **Embedding Model**: `HuggingFaceEmbeddings` (using `all-MiniLM-L6-v2`)
 * **helpers/retriever.py**: Manages vector search
 * **helpers/chain.py**: Groq LLM response generation
 
@@ -136,10 +151,9 @@ graph TD
 
 | Issue                         | Solution                                             |
 | ----------------------------- | ---------------------------------------------------- |
-| "Failed to delete chroma\_db" | Restart the app or manually delete the folder        |
 | "No captions available"       | Try a different YouTube video with English subtitles |
 | "PDF extraction failed"       | Ensure the PDF isn’t scanned/image-based             |
-| Groq API errors               | Check your `.env` file and quota at Groq Console     |
+| Groq API errors               | Check your `.env` file and quota at the Groq Console |
 
 ---
 

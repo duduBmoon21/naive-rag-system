@@ -2,10 +2,8 @@ streamlit
 langchain-groq
 langchain-community
 pypdf
-sentence-transformers
 python-dotenv
-chromadb
-langchain-chroma
+sentence-transformers
 langchain-text-splitters
 rank_bm25
 langchain-huggingface
