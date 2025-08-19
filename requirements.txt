@@ -9,3 +9,8 @@ rank_bm25
 langchain-huggingface
 yt-dlp
 faiss-cpu
+cohere
+streamlit-audiorec
+SpeechRecognition
+pyaudio
+streamlit-webrtc

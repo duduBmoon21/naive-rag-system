@@ -50,15 +50,25 @@ def create_qa_chain(retriever):
     # Context prompt
     CONTEXT_PROMPT = PromptTemplate(
         template="""
-        [INST] Answer strictly based only on the context below. 
-        Clearly indicate which source each piece comes from (PDF name or YouTube).
-        If multiple sources are available, cross-reference them.
-        If unsure, say "This isn't clear from the sources.
-        Context: {context}
-        Question: {question} [/INST]
+        [INST] You are a careful assistant. 
+        Answer strictly based only on the context below.  
+        Your role is not just to summarize but also to:
+        - Clearly indicate which source each piece comes from (PDF name or YouTube).  
+        - Compare and connect ideas across multiple sources, if relevant.  
+        - Highlight consistencies, differences, or overlaps in the sources.  
+        - If unsure or if the context does not cover the question, respond exactly with: "This isn't clear from the sources."  
+        - Do NOT use outside knowledge or make guesses beyond the provided context.  
+
+        Context:
+        {context}
+
+        Question:
+        {question}
+        [/INST]
         """,
         input_variables=["context", "question"]
     )
+
 
     # Analysis prompt
     ANALYSIS_PROMPT = PromptTemplate(

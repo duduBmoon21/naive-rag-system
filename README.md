@@ -1,84 +1,99 @@
-# Lumi Documentation
+# Lumi - Your AI-Powered Study Assistant
 
-Your AI-powered Study Assistant
+Lumi is a Retrieval-Augmented Generation (RAG) application built with Streamlit and LangChain. It allows you to create a personalized knowledge base from your study materials (PDFs and YouTube videos) and ask questions to get detailed, source-backed answers and AI-generated analysis.
 
----
-
-## 📌 Table of Contents
-
-* [Overview](#-overview)
-* [Features](#-features)
-* [Installation](#️-installation)
-* [Usage Guide](#-usage-guide)
-* [Technical Architecture](#-technical-architecture)
-* [Troubleshooting](#-troubleshooting)
-* [FAQs](#-faqs)
-* [Contributing](#-contributing)
-
----
-
-## 🌐 Overview
-
-Lumi is an AI-powered study assistant designed to make learning smarter and more efficient. It helps you:
-
-* Extract insights from PDFs (lecture notes, research papers, books)
-* Analyze YouTube videos (educational content with captions)
-* Answer questions with **source-backed responses**
-* Provide **AI-generated analysis** beyond the uploaded sources
-
-**Built with:**
-
-* RAG (Retrieval-Augmented Generation)
-* LangChain & Groq (for fast LLM processing)
-* FAISS (vector storage)
+![Lumi Screenshot](https://user-images.githubusercontent.com/16269993/202936253-8c6d3f8e-3a2b-43e0-8e5a-6a8a3e7b8e4e.png) 
+*(Note: Screenshot is a representative example)*
 
 ---
 
 ## ✨ Features
 
-| Feature                | Description                                           |
-| ---------------------- | ----------------------------------------------------- |
-| Multi-Source Ingestion | Process multiple PDFs + YouTube videos simultaneously |
-| Smart Q\&A             | Answers combine exact sources + AI analysis           |
-| Cross-Referencing      | Connects concepts across different materials          |
-| Transcript Cleaning    | Automatically cleans YouTube captions                 |
-| Cache Management       | Automatic cleanup of temporary files                  |
+- **Multi-Source Ingestion:** Upload multiple PDFs or provide YouTube video URLs to build your knowledge base.
+- **Collection Management:** Organize your documents into distinct collections for different subjects or topics.
+- **Hybrid Search:** Combines dense vector search (FAISS) and sparse keyword search (BM25) for robust and relevant document retrieval.
+- **Relevance Reranking:** Uses a `Cross-Encoder` model to re-rank retrieved documents, ensuring the most relevant context is passed to the language model.
+- **Interactive Chat Interface:** A familiar chat UI to query your knowledge base and maintain conversation history.
+- **Dual-Response System:**
+  - **From Your Materials:** Provides a direct answer based *strictly* on the content of your uploaded documents.
+  - **Lumi's Analysis:** Offers a separate, AI-generated analysis that synthesizes information, draws connections, and provides deeper insights.
+- **Source-Backed Answers:** Every answer includes expandable references to the exact text chunks from the original documents.
+- **Manual Chunk Selection:** For targeted questions, you can manually select specific text chunks to focus the AI's attention.
+- **Configurable Retrieval:** Easily adjust the number of documents to retrieve (Top-K) and toggle the reranker on/off via the sidebar.
 
 ---
 
-## ⚙️ Installation
+## 🛠️ Tech Stack
 
-### Prerequisites
+- **Frontend:** Streamlit
+- **LLM Orchestration:** LangChain
+- **LLM Provider:** Groq (using Llama 3 models for speed and performance)
+- **Embeddings & Reranking:** Hugging Face Sentence-Transformers
+- **Vector Store:** FAISS (in-memory)
+- **Sparse Retrieval:** rank-bm25
+- **Document Loading:** `PyPDF`, `yt-dlp`
 
-* Python 3.10+
-* Groq API key ([Get it here](https://console.groq.com))
+---
 
-### Steps
+## 🚀 Getting Started
 
-1. **Clone the repository:**
+Follow these steps to set up and run the project locally.
 
-   ```bash
-   git clone https://github.com/duduBmoon21/naive-rag-system
-   cd  naive-rag-system
-   ```
+### 1. Prerequisites
 
-2. **Install dependencies:**
+- Python 3.9+
 
-   ```bash
-   pip install -r requirements.txt
-   ```
 
-3. **Create `.env` file:**
+### 2. Clone the Repository
 
-   ```env
-   GROQ_API_KEY=your_api_key_here
-   ```
+```bash
+git clone https://github.com/duduBmoon21/naive-rag-system.git
+cd naive-rag-system
+```
 
-4. **Launch Lumi:**
+### 3. Set Up a Virtual Environment
 
-   ```bash
-   streamlit run app.py
-   ```
+It's highly recommended to use a virtual environment to manage dependencies.
+
+```bash
+# For Windows
+python -m venv venv
+.\venv\Scripts\activate
+
+# For macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 4. Install Dependencies
+
+Install all required packages from the `requirements.txt` file.
+
+```bash
+pip install -r requirements.txt
+```
+
+### 5. Set Up Environment Variables
+
+This project requires an API key from Groq to use their language models.
+
+1.  Create a file named `.env` in the root of the project directory.
+2.  Sign up for a free account at the Groq Console ([Get it here](https://console.groq.com)) and create an API key.
+3.  Add the key to your `.env` file like this:
+
+    ```
+    GROQ_API_KEY="gsk_YourSecretKeyGoesHere"
+    ```
+
+### 6. Run the Application
+
+Launch the Streamlit app with the following command:
+
+```bash
+streamlit run app.py
+```
+
+The application will open in a new tab in your web browser.
 
 ---
 
@@ -96,14 +111,6 @@ Lumi is an AI-powered study assistant designed to make learning smarter and more
 
 ### 3. Asking Questions
 
-* Type your question (e.g., *"Summarize key points"*)
-* Receive two-part answers:
-
-  * **From Your Sources:** Exact references
-  * **AI Analysis:** Interpretations & connections
-
-### 4. Managing Sessions
-
 Here is an example of the two-part response format:
 
 > **Question:** *What is Retrieval-Augmented Generation?*
@@ -111,13 +118,15 @@ Here is an example of the two-part response format:
 > **🤖 Lumi's Answer:**
 >
 > **From Your Sources:**
+>
 > > RAG (Retrieval-Augmented Generation) is an AI framework for retrieving facts from an external knowledge base to ground large language models (LLMs) on the most accurate, up-to-date information and to give users insight into the LLMs' generative process.
 > > *Source: `lecture_notes.pdf`, page 3*
 >
-> **AI Analysis:**
-> > Based on the provided materials, Retrieval-Augmented Generation (RAG) is essentially a method to make language models smarter and more reliable. Instead of just relying on its pre-existing training data, the model first "looks up" relevant information from your specific documents (like a student checking their notes). It then uses these facts to construct a more accurate and context-aware answer, even citing the source for you. This helps prevent the model from making things up and ensures the answers are directly tied to the content you've provided.
+> **Lumi's Analysis:**
+>
+> > This means that instead of just relying on its pre-trained knowledge, which can be outdated, a RAG system actively looks up current information before answering. Think of it like an open-book exam for an AI. It's a powerful technique to reduce hallucinations and build more trustworthy AI assistants, especially for specialized topics like your study materials.
 
-* **Reset:** Click *"Start New Session"* to clear all data
+* **Reset:** Click *"Start New Session"* to clear all data.
 
 ---
 
@@ -126,24 +135,35 @@ Here is an example of the two-part response format:
 ### Diagram
 
 ```mermaid
-graph TD
-    A[User Uploads] --> B(PDF/YouTube Loader)
-    B --> C[Text Chunking]
-    C --> D{Embedding Generation}
-    D --> E[FAISS Vector Store]
-    D --> E[Retriever]
-    E --> F[Groq LLM]
-    F --> G[Response Generation]
-    G --> H{{User Interface}}
+flowchart TD
+    A[User Query] --> B[Hybrid Retrieval]
+
+    subgraph B [Two-Path Retrieval]
+        C[FAISS Vector Store<br/>Dense/Semantic Search]
+        D[BM25 Index<br/>Sparse/Keyword Search]
+    end
+
+    C --> E[Merge & Deduplicate<br/>Results]
+    D --> E
+
+    E --> F{Reranker Enabled?}
+    F -- Yes --> G[Cross-Encoder Reranking<br/>Semantic Reordering]
+    F -- No --> H[Use Initial Ranking]
+
+    G --> I[Select Top-K Chunks]
+    H --> I
+
+    I --> J[Pass to QA Chain<br/>for Answer Generation]
 ```
 
 ### Key Components
 
-* **app.py**: Streamlit UI and workflow control
-* **helpers/loader.py**: Handles PDF/YouTube ingestion
-* **Embedding Model**: `HuggingFaceEmbeddings` (using `all-MiniLM-L6-v2`)
-* **helpers/retriever.py**: Manages vector search
-* **helpers/chain.py**: Groq LLM response generation
+* **Streamlit UI**: Web front-end for user interaction, file uploads, and displaying results.
+* **Document Loaders (`PyPDF`, `yt-dlp`)**: Extract text from PDFs and YouTube transcripts.
+* **Hybrid Retrieval**: Combines dense semantic search (FAISS) and sparse keyword search (BM25).
+* **Reranker (Cross-Encoder)**: Optionally reorders search results for better semantic relevance.
+* **Top-K Chunk Selection**: Filters the most relevant chunks to pass to the QA chain.
+* **LangChain QA Chain & Groq LLM**: Generates two-part answers: source-based content and independent analysis.
 
 ---
 
@@ -170,6 +190,24 @@ A: Upload more related materials for better cross-referencing.
 
 ---
 
+## 📂 Project Structure
+
+```
+naive-rag-system/
+├── helpers/
+│   ├── chain.py         # Defines the LangChain (LCEL) QA and analysis chain
+│   ├── loader.py        # Utility for loading PDF documents
+│   ├── reranker.py      # Handles Cross-Encoder reranking logic
+│   ├── retriever.py     # Implements the HybridRetriever (FAISS + BM25)
+│   └── youtube.py       # Utility for loading YouTube transcripts
+├── .env.example         # Example environment file
+├── app.py               # The main Streamlit application UI and logic
+├── README.md            # This file
+└── requirements.txt     # Project dependencies
+```
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository
@@ -187,5 +225,4 @@ A: Upload more related materials for better cross-referencing.
 MIT License
 
 ## 🐛 Report Issues
-
 Use [GitHub Issues](https://github.com/duduBmoon21/naive-rag-system/issues)
